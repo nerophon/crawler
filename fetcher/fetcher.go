@@ -5,13 +5,9 @@ package fetcher
 
 import (
 	"crypto/tls"
-	"io/ioutil"
+	"fmt"
 	"net/http"
 	pkgurl "net/url"
-	"os"
-
-	"fmt"
-
 	"strings"
 
 	"github.com/jackdanger/collectlinks"
@@ -65,40 +61,66 @@ func (wf *WebFetch) Fetch(url string) {
 
 	// distribute the links into desired categories
 	for _, link := range links {
-		//fmt.Println(link)
+		//filter out dupes and blanks
+		for _, v := range wf.internalLinks {
+			if link == v {
+				continue
+			}
+		}
+		for _, v := range wf.externalLinks {
+			if link == v {
+				continue
+			}
+		}
+		for _, v := range wf.resourceLinks {
+			if link == v {
+				continue
+			}
+		}
+		if link == "" {
+			continue
+		}
+
+		// run rules
 		child, err := pkgurl.Parse(link)
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "\nWarning: failed to validate a link as a proper url:\n%v\n", err)
+			fmt.Printf("\nWarning: failed to validate a link as a proper url:\n%v\n", err)
 			continue
 		}
-		if child.Host != parent.Host {
+		//fmt.Println(link)
+
+		// compare hosts
+		if !strings.Contains(child.Host, parent.Host) && !strings.Contains(parent.Host, child.Host) {
 			wf.externalLinks = append(wf.externalLinks, link)
+			//fmt.Println("external")
 			continue
 		}
+
+		// filter by scheme
 		if child.Scheme != "http" && child.Scheme != "https" {
 			wf.resourceLinks = append(wf.resourceLinks, link)
+			//fmt.Println("scheme not http(s), resource!")
 			continue
 		}
+
+		// check content type by fetching the header
+		// TODO this is the bottleneck of the crawler, and should be improved
 		hdResp, err := client.Head(link)
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "\nWarning: failed to make a HEAD request to a link:\n%v\n", err)
+			fmt.Printf("\nWarning: failed to make a HEAD request to a link:\n%v\n", err)
 			continue
 		}
 		defer hdResp.Body.Close()
-		header, err := ioutil.ReadAll(hdResp.Body)
-		if err != nil {
-			fmt.Fprintf(os.Stdout, "\nWarning: failed to parse a HEAD request to a link:\n%v\n", err)
-			continue
-		}
-		headerString := string(header)
-		//fmt.Printf("%v", headerString)
-		if strings.Contains(headerString, "Content-Type: text/html") {
+		contentType := hdResp.Header.Get("Content-Type")
+		//fmt.Printf("Content-Type = %v", contentType)
+		if strings.Contains(contentType, "text/html") {
 			wf.internalLinks = append(wf.internalLinks, link)
 			continue
 		} else {
 			wf.resourceLinks = append(wf.resourceLinks, link)
 			continue
 		}
+
 	}
 }
 

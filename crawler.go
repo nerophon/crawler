@@ -99,10 +99,33 @@ func crawlCommand(url string) {
 		if len(newLinks) <= 0 {
 			//no more links to crawl, so print results
 			fmt.Println("Success!")
-			fmt.Printf("\n%v\n", pages)
+			fmt.Println("")
+			printPageMap(pages)
 			fmt.Println("")
 			return
 		}
+	}
+}
+
+func printPageMap(pages map[string]*Page) {
+	for _, page := range pages {
+		printPage(page)
+	}
+}
+
+func printPage(page *Page) {
+	fmt.Printf("URL: %v\n", page.url)
+	fmt.Printf("\tInternal Links: \n")
+	printSlice(page.internalLinks)
+	fmt.Printf("\tExternal Links: \n")
+	printSlice(page.externalLinks)
+	fmt.Printf("\tResource Links: \n")
+	printSlice(page.resourceLinks)
+}
+
+func printSlice(slice []string) {
+	for _, val := range slice {
+		fmt.Printf("\t\t%v\n", val)
 	}
 }
 
