@@ -141,11 +141,3 @@ func (wf *WebFetch) CategoriseLinkAsExternal(link string) {
 func (wf *WebFetch) CategoriseLinkAsResource(link string) {
 	wf.externalLinks[link] = true
 }
-
-// Categorise sorts all links into three groups: internal, external & resource
-func (wf *WebFetch) Categorise() {
-	// TODO
-	// for _, link := range wf.allLinks {
-
-	// }
-}
