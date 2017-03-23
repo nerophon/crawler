@@ -75,6 +75,10 @@ func New(url string) (*WebFetch, error) {
 	}
 	wf.url = url
 	wf.urlStruct = urlStruct
+	wf.allLinks = make(map[string]bool)
+	wf.internalLinks = make(map[string]bool)
+	wf.externalLinks = make(map[string]bool)
+	wf.resourceLinks = make(map[string]bool)
 
 	// disable security since this is just a test app
 	tlsConfig := &tls.Config{
@@ -139,5 +143,5 @@ func (wf *WebFetch) CategoriseLinkAsExternal(link string) {
 
 // CategoriseLinkAsResource puts the specified link into the resource category
 func (wf *WebFetch) CategoriseLinkAsResource(link string) {
-	wf.externalLinks[link] = true
+	wf.resourceLinks[link] = true
 }
