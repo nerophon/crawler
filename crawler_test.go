@@ -15,14 +15,16 @@ func TestSanity(t *testing.T) {
 }
 
 func BenchmarkFetch(b *testing.B) {
+	b.SkipNow()
 	// run the Fetch b.N times
 	for n := 0; n < b.N; n++ {
-		f := fetcher.New()
-		f.Fetch(url)
+		f, _ := fetcher.New(url)
+		f.Fetch()
 	}
 }
 
 func BenchmarkCrawl(b *testing.B) {
+	b.SkipNow()
 	// run the Crawl b.N times
 	for n := 0; n < b.N; n++ {
 		crawlCommand(url)

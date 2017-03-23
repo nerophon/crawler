@@ -5,6 +5,7 @@ package fetcher
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	pkgurl "net/url"
@@ -16,7 +17,7 @@ import (
 type WebFetch struct {
 	url           string
 	urlStruct     *pkgurl.URL
-	client        http.Client
+	client        *http.Client
 	contentType   string
 	allLinks      map[string]bool
 	internalLinks map[string]bool
@@ -66,13 +67,19 @@ func (wf *WebFetch) Err() error {
 
 // New creates and initializes a new Fetch struct
 func New(url string) (*WebFetch, error) {
-	wf := new(WebFetch)
 
 	// validate url
 	urlStruct, err := pkgurl.Parse(url)
 	if err != nil {
 		return nil, err
 	}
+	if url == "" {
+		return nil, errors.New("url invalid: empty")
+	}
+	if urlStruct.Scheme == "" {
+		return nil, errors.New("url invalid: no scheme")
+	}
+	wf := new(WebFetch)
 	wf.url = url
 	wf.urlStruct = urlStruct
 	wf.allLinks = make(map[string]bool)
@@ -87,7 +94,7 @@ func New(url string) (*WebFetch, error) {
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 	}
-	wf.client = http.Client{Transport: transport}
+	wf.client = &http.Client{Transport: transport}
 
 	return wf, nil
 }
