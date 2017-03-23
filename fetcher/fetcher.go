@@ -6,7 +6,6 @@ package fetcher
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 
 	"github.com/jackdanger/collectlinks"
@@ -37,11 +36,6 @@ func (wf *WebFetch) Fetch(url string) {
 		return
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		wf.err = err
-		return
-	}
 	links := collectlinks.All(resp.Body)
 	for _, link := range links {
 		fmt.Println(link)
