@@ -180,6 +180,16 @@ func crawl(domain string, pages map[string]*Page, urls map[string]bool, knownRes
 			continue
 		}
 
+		// we also don't have to reasses anything in the knownResourceUrls list
+		// and can put it straight into resources
+		_, exists = knownResourceUrls[link]
+		if exists {
+			for _, fetcher := range fetchers {
+				fetcher.CategoriseLinkAsResource(link)
+			}
+			continue
+		}
+
 		// put the link url into a structure for analysis
 		linkStruct, _ := pkgurl.Parse(link)
 
