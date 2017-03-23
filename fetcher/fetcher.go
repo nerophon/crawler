@@ -119,16 +119,30 @@ func (wf *WebFetch) Fetch() {
 
 	// remove dupes, blanks, and malforms
 	for _, newLink := range allLinks {
-		if newLink == "" {
-			continue
-		}
+		newLink = fixURL(newLink, wf.url)
 		_, err := pkgurl.Parse(newLink)
 		if err != nil {
-			fmt.Printf("\nWarning: failed to validate a link as a proper url:\n%v\n", err)
+			continue
+		}
+		if newLink == "" {
 			continue
 		}
 		wf.allLinks[newLink] = true
 	}
+}
+
+func fixURL(href, base string) string {
+	url, err := pkgurl.Parse(href)
+	if err != nil {
+		fmt.Printf("\nWarning: failed to validate a link as a proper url:\n%v\n", err)
+		return ""
+	}
+	baseURL, _ := pkgurl.Parse(base)
+	if err != nil {
+		return ""
+	}
+	url = baseURL.ResolveReference(url)
+	return url.String()
 }
 
 // CategoriseLinkAsInternal puts the specified link into the internal category
