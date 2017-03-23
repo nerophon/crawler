@@ -4,9 +4,15 @@ Package fetcher downloads and parses web pages into sets of links.
 package fetcher
 
 import (
-	"errors"
-	"fmt"
+	"crypto/tls"
+	"io/ioutil"
 	"net/http"
+	pkgurl "net/url"
+	"os"
+
+	"fmt"
+
+	"strings"
 
 	"github.com/jackdanger/collectlinks"
 )
@@ -29,18 +35,71 @@ func New() *WebFetch {
 // and parses it into a structure of links,
 // filtering out duplicate & self links
 func (wf *WebFetch) Fetch(url string) {
+	// validate parent
+	parent, err := pkgurl.Parse(url)
+	if err != nil {
+		wf.err = err
+		return
+	}
 	wf.url = url
-	resp, err := http.Get(url)
+
+	// disable security since this is just a test app
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+	client := http.Client{Transport: transport}
+
+	// download the html
+	resp, err := client.Get(url)
 	if err != nil {
 		wf.err = err
 		return
 	}
 	defer resp.Body.Close()
+
+	// use an open-source library to parse it for links
 	links := collectlinks.All(resp.Body)
+
+	// distribute the links into desired categories
 	for _, link := range links {
-		fmt.Println(link)
+		//fmt.Println(link)
+		child, err := pkgurl.Parse(link)
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "\nWarning: failed to validate a link as a proper url:\n%v\n", err)
+			continue
+		}
+		if child.Host != parent.Host {
+			wf.externalLinks = append(wf.externalLinks, link)
+			continue
+		}
+		if child.Scheme != "http" && child.Scheme != "https" {
+			wf.resourceLinks = append(wf.resourceLinks, link)
+			continue
+		}
+		hdResp, err := client.Head(link)
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "\nWarning: failed to make a HEAD request to a link:\n%v\n", err)
+			continue
+		}
+		defer hdResp.Body.Close()
+		header, err := ioutil.ReadAll(hdResp.Body)
+		if err != nil {
+			fmt.Fprintf(os.Stdout, "\nWarning: failed to parse a HEAD request to a link:\n%v\n", err)
+			continue
+		}
+		headerString := string(header)
+		//fmt.Printf("%v", headerString)
+		if strings.Contains(headerString, "Content-Type: text/html") {
+			wf.internalLinks = append(wf.internalLinks, link)
+			continue
+		} else {
+			wf.resourceLinks = append(wf.resourceLinks, link)
+			continue
+		}
 	}
-	wf.err = errors.New("mock")
 }
 
 // URL returns the url of the fetch operation
