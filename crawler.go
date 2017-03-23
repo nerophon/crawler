@@ -143,6 +143,8 @@ type CrawlResult struct {
 // returns a new set of urls to crawl, filtering out those already in the map
 func crawl(domain string, pages map[string]*Page, urls map[string]bool, knownResourceUrls map[string]bool) (res CrawlResult) {
 
+	fmt.Println("crawling...")
+
 	// download pages and parse into links
 	c := make(chan Fetcher)
 	for url := range urls {
