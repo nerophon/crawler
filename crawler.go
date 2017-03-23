@@ -10,10 +10,11 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/nerophon/crawler/fetcher"
 )
 
 func main() {
@@ -65,43 +66,28 @@ func commandLoop(reader *bufio.Reader) {
 	commandLoop(reader)
 }
 
-// Fetcher returns the body of a URL and
-// a slice of URLs found on that page.
-// must filter out duplicate links, self links
+// Fetcher takes a URL, downloads the page body
+// and parses it into a structure of links,
+// filtering out duplicate & self links
 type Fetcher interface {
-	Fetch(url string) (r FetchResult)
+	Fetch(url string)
+	URL() string
+	InternalLinks() []string
+	ExternalLinks() []string
+	ResourceLinks() []string
+	Err() (e error)
 }
 
-// FetchResult encapsulates the result of a single fetch operation
-type FetchResult struct {
-	page *Page
-	err  error
-}
-
-type mockFetcher struct{}
-
-func (*mockFetcher) Fetch(url string) (r FetchResult) {
-	return FetchResult{nil, errors.New("mock")}
-}
-
-var fetcher = mockFetcher{}
-
-func fetch(url string, c chan FetchResult) {
-	result := fetcher.Fetch(url)
-	c <- result
-}
-
-// Page stores site map metadata about a single web page
-type Page struct {
-	url           string
-	internalLinks []string
-	externalLinks []string
-	resourceLinks []string
+func fetch(url string, c chan Fetcher) {
+	var f = fetcher.New() // single point of contact
+	f.Fetch(url)
+	c <- f
 }
 
 func crawlCommand(url string) {
 	var pages = make(map[string]*Page)
 	var newLinks = []string{url}
+	// loops until return
 	for {
 		result := crawl(pages, newLinks)
 		if result.err != nil {
@@ -115,8 +101,17 @@ func crawlCommand(url string) {
 			fmt.Println("Success!")
 			fmt.Printf("\n%v\n", pages)
 			fmt.Println("")
+			return
 		}
 	}
+}
+
+// Page stores site map metadata about a single web page
+type Page struct {
+	url           string
+	internalLinks []string
+	externalLinks []string
+	resourceLinks []string
 }
 
 // CrawlResult encapsulates the result of a crawl
@@ -128,20 +123,22 @@ type CrawlResult struct {
 // crawl over a set of urls, adding page metadata into specified pages map;
 // returns a new set of urls to crawl, filtering out those already in the map
 func crawl(pages map[string]*Page, urls []string) (r CrawlResult) {
-	c := make(chan FetchResult)
+	c := make(chan Fetcher)
 	for _, link := range urls {
 		go fetch(link, c) // woof! woof!
 	}
 	foundLinks := make([]string, 0)
 	for i := 0; i < len(urls); i++ {
-		fetchResult := <-c
-		if fetchResult.err != nil {
-			r.err = fetchResult.err
+		f := <-c
+		if f.Err() != nil {
+			r.err = f.Err()
 			return r
 		}
-		pages[fetchResult.page.url] = fetchResult.page
+		newPage := &Page{f.URL(), f.InternalLinks(),
+			f.ExternalLinks(), f.ResourceLinks()}
+		pages[f.URL()] = newPage
 		// combine fetchResult links
-		foundLinks = append(foundLinks, fetchResult.page.internalLinks...)
+		foundLinks = append(foundLinks, newPage.internalLinks...)
 	}
 	//now filter out already crawled pages
 	for _, link := range foundLinks {
