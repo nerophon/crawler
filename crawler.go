@@ -273,15 +273,17 @@ type Fetcher interface {
 }
 
 func fetch(url string, c chan Fetcher) {
-	f, _ := fetcher.New(url) // single point of contact
-	// TODO handle error
-	f.Fetch()
+	f, err := fetcher.New(url) // single point of contact
+	if err == nil {
+		f.Fetch()
+	}
 	c <- f
 }
 
 func fetchHeader(url string, c chan Fetcher) {
-	f, _ := fetcher.New(url) // single point of contact
-	// TODO handle error
-	f.FetchHeader()
+	f, err := fetcher.New(url) // single point of contact
+	if err == nil {
+		f.FetchHeader()
+	}
 	c <- f
 }
