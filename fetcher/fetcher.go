@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	pkgurl "net/url"
-	"strings"
 
 	"github.com/jackdanger/collectlinks"
 )
@@ -16,28 +15,66 @@ import (
 // WebFetch encapsulates a Fetch operation and its result
 type WebFetch struct {
 	url           string
-	internalLinks []string
-	externalLinks []string
-	resourceLinks []string
+	urlStruct     *pkgurl.URL
+	client        http.Client
+	contentType   string
+	allLinks      map[string]bool
+	internalLinks map[string]bool
+	externalLinks map[string]bool
+	resourceLinks map[string]bool
 	err           error
 }
 
-// New is a convenience function to return a new Fetch struct
-func New() *WebFetch {
-	return new(WebFetch)
+// URL returns the url of the fetch operation
+func (wf *WebFetch) URL() string {
+	return wf.url
 }
 
-// Fetch takes a URL, downloads the page body
-// and parses it into a structure of links,
-// filtering out duplicate & self links
-func (wf *WebFetch) Fetch(url string) {
-	// validate parent
-	parent, err := pkgurl.Parse(url)
+// ContentType returns the content-type, if headers have been fetched
+func (wf *WebFetch) ContentType() string {
+	return wf.contentType
+}
+
+// AllLinks gets the complete uncategorised link list
+// from a successful fetch operation, nil otherwise.
+func (wf *WebFetch) AllLinks() map[string]bool {
+	return wf.allLinks
+}
+
+// InternalLinks gets the domain-internal link list
+// from a successful fetch operation, nil otherwise.
+func (wf *WebFetch) InternalLinks() map[string]bool {
+	return wf.internalLinks
+}
+
+// ExternalLinks gets the domain-external link list
+// from a successful fetch operation, nil otherwise.
+func (wf *WebFetch) ExternalLinks() map[string]bool {
+	return wf.externalLinks
+}
+
+// ResourceLinks gets the resource link list
+// from a successful fetch operation, nil otherwise.
+func (wf *WebFetch) ResourceLinks() map[string]bool {
+	return wf.resourceLinks
+}
+
+// Err returns the error from a fetch operation, if there was one.
+func (wf *WebFetch) Err() error {
+	return wf.err
+}
+
+// New creates and initializes a new Fetch struct
+func New(url string) (*WebFetch, error) {
+	wf := new(WebFetch)
+
+	// validate url
+	urlStruct, err := pkgurl.Parse(url)
 	if err != nil {
-		wf.err = err
-		return
+		return nil, err
 	}
 	wf.url = url
+	wf.urlStruct = urlStruct
 
 	// disable security since this is just a test app
 	tlsConfig := &tls.Config{
@@ -46,10 +83,27 @@ func (wf *WebFetch) Fetch(url string) {
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 	}
-	client := http.Client{Transport: transport}
+	wf.client = http.Client{Transport: transport}
+
+	return wf, nil
+}
+
+// FetchHeader downloads the page header and stores the content-type
+func (wf *WebFetch) FetchHeader() {
+	resp, err := wf.client.Head(wf.url)
+	if err != nil {
+		fmt.Printf("\nWarning: failed to make a HEAD request to a url:\n%v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+	wf.contentType = resp.Header.Get("Content-Type")
+}
+
+// Fetch downloads the page body and parses it into a structure of links
+func (wf *WebFetch) Fetch() {
 
 	// download the html
-	resp, err := client.Get(url)
+	resp, err := wf.client.Get(wf.url)
 	if err != nil {
 		wf.err = err
 		return
@@ -57,97 +111,41 @@ func (wf *WebFetch) Fetch(url string) {
 	defer resp.Body.Close()
 
 	// use an open-source library to parse it for links
-	links := collectlinks.All(resp.Body)
+	allLinks := collectlinks.All(resp.Body)
 
-	// distribute the links into desired categories
-	for _, link := range links {
-		//filter out dupes and blanks
-		for _, v := range wf.internalLinks {
-			if link == v {
-				continue
-			}
-		}
-		for _, v := range wf.externalLinks {
-			if link == v {
-				continue
-			}
-		}
-		for _, v := range wf.resourceLinks {
-			if link == v {
-				continue
-			}
-		}
-		if link == "" {
+	// remove dupes, blanks, and malforms
+	for _, newLink := range allLinks {
+		if newLink == "" {
 			continue
 		}
-
-		// run rules
-		child, err := pkgurl.Parse(link)
+		_, err := pkgurl.Parse(newLink)
 		if err != nil {
 			fmt.Printf("\nWarning: failed to validate a link as a proper url:\n%v\n", err)
 			continue
 		}
-		//fmt.Println(link)
-
-		// compare hosts
-		if !strings.Contains(child.Host, parent.Host) && !strings.Contains(parent.Host, child.Host) {
-			wf.externalLinks = append(wf.externalLinks, link)
-			//fmt.Println("external")
-			continue
-		}
-
-		// filter by scheme
-		if child.Scheme != "http" && child.Scheme != "https" {
-			wf.resourceLinks = append(wf.resourceLinks, link)
-			//fmt.Println("scheme not http(s), resource!")
-			continue
-		}
-
-		// check content type by fetching the header
-		// TODO this is the bottleneck of the crawler, and should be improved
-		hdResp, err := client.Head(link)
-		if err != nil {
-			fmt.Printf("\nWarning: failed to make a HEAD request to a link:\n%v\n", err)
-			continue
-		}
-		defer hdResp.Body.Close()
-		contentType := hdResp.Header.Get("Content-Type")
-		//fmt.Printf("Content-Type = %v", contentType)
-		if strings.Contains(contentType, "text/html") {
-			wf.internalLinks = append(wf.internalLinks, link)
-			continue
-		} else {
-			wf.resourceLinks = append(wf.resourceLinks, link)
-			continue
-		}
-
+		wf.allLinks[newLink] = true
 	}
 }
 
-// URL returns the url of the fetch operation
-func (wf *WebFetch) URL() string {
-	return wf.url
+// CategoriseLinkAsInternal puts the specified link into the internal category
+func (wf *WebFetch) CategoriseLinkAsInternal(link string) {
+	wf.internalLinks[link] = true
 }
 
-// InternalLinks gets the domain-internal link list
-// from a successful fetch operation, nil otherwise.
-func (wf *WebFetch) InternalLinks() []string {
-	return wf.internalLinks
+// CategoriseLinkAsExternal puts the specified link into the external category
+func (wf *WebFetch) CategoriseLinkAsExternal(link string) {
+	wf.externalLinks[link] = true
 }
 
-// ExternalLinks gets the domain-external link list
-// from a successful fetch operation, nil otherwise.
-func (wf *WebFetch) ExternalLinks() []string {
-	return wf.externalLinks
+// CategoriseLinkAsResource puts the specified link into the resource category
+func (wf *WebFetch) CategoriseLinkAsResource(link string) {
+	wf.externalLinks[link] = true
 }
 
-// ResourceLinks gets the resource link list
-// from a successful fetch operation, nil otherwise.
-func (wf *WebFetch) ResourceLinks() []string {
-	return wf.resourceLinks
-}
+// Categorise sorts all links into three groups: internal, external & resource
+func (wf *WebFetch) Categorise() {
+	// TODO
+	// for _, link := range wf.allLinks {
 
-// Err returns the error from a fetch operation, if there was one.
-func (wf *WebFetch) Err() error {
-	return wf.err
+	// }
 }

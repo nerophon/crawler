@@ -11,6 +11,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	pkgurl "net/url"
 	"os"
 	"strings"
 
@@ -66,37 +67,30 @@ func commandLoop(reader *bufio.Reader) {
 	commandLoop(reader)
 }
 
-// Fetcher takes a URL, downloads the page body
-// and parses it into a structure of links,
-// filtering out duplicate & self links
-type Fetcher interface {
-	Fetch(url string)
-	URL() string
-	InternalLinks() []string
-	ExternalLinks() []string
-	ResourceLinks() []string
-	Err() (e error)
-}
-
-func fetch(url string, c chan Fetcher) {
-	var f = fetcher.New() // single point of contact
-	f.Fetch(url)
-	c <- f
-}
-
 func crawlCommand(url string) {
+	urlStruct, err := pkgurl.Parse(url)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "\nSorry, there was an error:\n", err)
+		fmt.Println("")
+		return
+	}
+	var domain = urlStruct.Host
 	var pages = make(map[string]*Page)
-	var newLinks = []string{url}
-	// loops until return
+	var newHTMLUrls = make(map[string]bool)
+	newHTMLUrls[url] = true
+	var knownResourceUrls = make(map[string]bool)
+
+	// loop until return
 	for {
-		result := crawl(pages, newLinks)
+		result := crawl(domain, pages, newHTMLUrls, knownResourceUrls)
 		if result.err != nil {
 			fmt.Fprintln(os.Stderr, "\nSorry, there was an error:\n", result.err)
 			fmt.Println("")
 			return
 		}
-		newLinks = result.newLinks
-		if len(newLinks) <= 0 {
+		newHTMLUrls = result.newHTMLUrls
+		knownResourceUrls = result.knownResourceUrls
+		if len(newHTMLUrls) <= 0 {
 			//no more links to crawl, so print results
 			fmt.Println("Success!")
 			fmt.Println("")
@@ -116,59 +110,166 @@ func printPageMap(pages map[string]*Page) {
 func printPage(page *Page) {
 	fmt.Printf("URL: %v\n", page.url)
 	fmt.Printf("\tInternal Links: \n")
-	printSlice(page.internalLinks)
+	printList(page.internalLinks)
 	fmt.Printf("\tExternal Links: \n")
-	printSlice(page.externalLinks)
+	printList(page.externalLinks)
 	fmt.Printf("\tResource Links: \n")
-	printSlice(page.resourceLinks)
+	printList(page.resourceLinks)
 }
 
-func printSlice(slice []string) {
-	for _, val := range slice {
-		fmt.Printf("\t\t%v\n", val)
+func printList(list map[string]bool) {
+	for key := range list {
+		fmt.Printf("\t\t%v\n", key)
 	}
 }
 
 // Page stores site map metadata about a single web page
 type Page struct {
 	url           string
-	internalLinks []string
-	externalLinks []string
-	resourceLinks []string
+	internalLinks map[string]bool
+	externalLinks map[string]bool
+	resourceLinks map[string]bool
 }
 
 // CrawlResult encapsulates the result of a crawl
 type CrawlResult struct {
-	newLinks []string
-	err      error
+	newHTMLUrls       map[string]bool
+	knownResourceUrls map[string]bool
+	err               error
 }
 
 // crawl over a set of urls, adding page metadata into specified pages map;
+// assumes all urls in the list have not yet been crawled;
 // returns a new set of urls to crawl, filtering out those already in the map
-func crawl(pages map[string]*Page, urls []string) (r CrawlResult) {
+func crawl(domain string, pages map[string]*Page, urls map[string]bool, knownResourceUrls map[string]bool) (res CrawlResult) {
+
+	// download pages and parse into links
 	c := make(chan Fetcher)
-	for _, link := range urls {
-		go fetch(link, c) // woof! woof!
+	for url := range urls {
+		go fetch(url, c) // woof! woof!
 	}
-	foundLinks := make([]string, 0)
+
+	// collate links
+	foundLinks := make(map[string][]Fetcher)
+	foundFetchers := make(map[string]Fetcher)
 	for i := 0; i < len(urls); i++ {
-		f := <-c
-		if f.Err() != nil {
-			r.err = f.Err()
-			return r
+		fetcher := <-c
+		if fetcher.Err() != nil {
+			res.err = fetcher.Err()
+			return res
 		}
-		newPage := &Page{f.URL(), f.InternalLinks(),
-			f.ExternalLinks(), f.ResourceLinks()}
-		pages[f.URL()] = newPage
-		// combine fetchResult links
-		foundLinks = append(foundLinks, newPage.internalLinks...)
+		for link := range fetcher.AllLinks() {
+			foundLinks[link] = append(foundLinks[link], fetcher)
+		}
+		foundFetchers[fetcher.URL()] = fetcher
 	}
-	//now filter out already crawled pages
-	for _, link := range foundLinks {
+
+	// assess links
+	remainingLinks := make(map[string][]Fetcher)
+	for link, fetchers := range foundLinks {
+
+		// we don't have to reasses links that have already been crawled
+		// we know they are internal links and page structs exist for them
 		_, exists := pages[link]
-		if !exists {
-			r.newLinks = append(r.newLinks, link)
+		if exists {
+			for _, fetcher := range fetchers {
+				fetcher.CategoriseLinkAsInternal(link)
+			}
+			continue
+		}
+
+		// put the link url into a structure for analysis
+		linkStruct, _ := pkgurl.Parse(link)
+
+		// compare hosts to see if the link is external
+		if !strings.Contains(linkStruct.Host, domain) && !strings.Contains(domain, linkStruct.Host) {
+			for _, fetcher := range fetchers {
+				fetcher.CategoriseLinkAsExternal(link)
+			}
+			continue
+		}
+
+		// filter by scheme to match some (but not all) resources
+		if linkStruct.Scheme != "http" && linkStruct.Scheme != "https" {
+			for _, fetcher := range fetchers {
+				fetcher.CategoriseLinkAsResource(link)
+			}
+			knownResourceUrls[link] = true
+			continue
+		}
+
+		// unfortunately the only way to discriminate further
+		// is to fetch the headers and check the content-type
+		remainingLinks[link] = fetchers
+		go fetchHeader(link, c) // woof! woof!
+	}
+
+	// reach back into the channel to retrieve fetchers with headers only
+	newHTMLUrls := make(map[string]bool)
+	for i := 0; i < len(remainingLinks); i++ {
+		headFetcher := <-c
+		if headFetcher.Err() != nil {
+			// ignore link, nothing we can do
+			continue
+		}
+		// finally, categorise by content-type
+		if strings.Contains(headFetcher.ContentType(), "text/html") {
+			for _, fetcher := range remainingLinks[headFetcher.URL()] {
+				fetcher.CategoriseLinkAsInternal(headFetcher.URL())
+				newHTMLUrls[headFetcher.URL()] = true // for next iteration
+			}
+			continue
+		} else {
+			for _, fetcher := range remainingLinks[headFetcher.URL()] {
+				fetcher.CategoriseLinkAsResource(headFetcher.URL())
+				knownResourceUrls[headFetcher.URL()] = true
+			}
+			continue
 		}
 	}
-	return r
+
+	// categorisation is complete, now we need to make a page for each found fetcher
+	// and add it to the page map
+	for url, fetcher := range foundFetchers {
+		newPage := &Page{url, fetcher.InternalLinks(),
+			fetcher.ExternalLinks(), fetcher.ResourceLinks()}
+		pages[url] = newPage
+	}
+
+	res.newHTMLUrls = newHTMLUrls             // this tells us what to crawl next
+	res.knownResourceUrls = knownResourceUrls // this saves us refetching headers
+	return res
+}
+
+// Fetcher takes a URL, downloads the page body
+// and parses it into a structure of links,
+// filtering out duplicate & self links
+type Fetcher interface {
+	URL() string
+	ContentType() string
+	AllLinks() map[string]bool
+	InternalLinks() map[string]bool
+	ExternalLinks() map[string]bool
+	ResourceLinks() map[string]bool
+	Err() error
+
+	FetchHeader()
+	Fetch()
+	CategoriseLinkAsInternal(string)
+	CategoriseLinkAsExternal(string)
+	CategoriseLinkAsResource(string)
+}
+
+func fetch(url string, c chan Fetcher) {
+	f, _ := fetcher.New(url) // single point of contact
+	// TODO handle error
+	f.Fetch()
+	c <- f
+}
+
+func fetchHeader(url string, c chan Fetcher) {
+	f, _ := fetcher.New(url) // single point of contact
+	// TODO handle error
+	f.FetchHeader()
+	c <- f
 }
