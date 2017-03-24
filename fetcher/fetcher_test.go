@@ -31,7 +31,7 @@ func TestNewWebFetch(t *testing.T) {
 		want      *WebFetch
 		wantError error
 	}{
-		{"", nil, errors.New("error")},
+		{"", nil, errors.New("url invalid: empty")},
 		{url1, &WebFetch{url1, urlStruct1, client,
 			"", map[string]bool{}, map[string]bool{},
 			map[string]bool{}, map[string]bool{}, nil}, nil},
@@ -46,9 +46,38 @@ func TestNewWebFetch(t *testing.T) {
 	for _, c := range cases {
 		got, gotErr := New(c.inURL)
 		if !reflect.DeepEqual(got, c.want) {
-			t.Errorf("NewWebFetch(%s), expected=%v, actual=%v, expectedError=%v, actualError=%v", c.inURL, c.want, got, c.wantError, gotErr)
+			t.Errorf("NewWebFetch(%s), expected=%v, actual=%v", c.inURL, c.want, got)
+		}
+		if !reflect.DeepEqual(gotErr, c.wantError) {
+			t.Errorf("NewWebFetch(%s), expectedError=%v, actualError=%v", c.inURL, c.wantError, gotErr)
 		}
 	}
+}
 
-	// TODO test FetchHeader, Fetch, fixURL
+func TestFixURL(t *testing.T) {
+	//t.SkipNow()
+	cases := []struct {
+		inHref    string
+		inBase    string
+		want      string
+		wantError error
+	}{
+		{"", "", "", errors.New("url invalid: empty")},
+		{"http://www.google.com", "", "", errors.New("url invalid: empty")},
+		{"", "http://www.google.com", "", errors.New("url invalid: empty")},
+		{"http://slides.com", "http://www.google.com", "http://slides.com", nil},
+		{"http://www.google.com", "http://www.google.com", "http://www.google.com", nil},
+		{"/help", "http://www.google.com", "http://www.google.com/help", nil},
+		{"/help", "http://google.com", "http://google.com/help", nil},
+		{"/help?arg=some", "http://google.com", "http://google.com/help?arg=some", nil},
+	}
+	for _, c := range cases {
+		got, gotErr := fixURL(c.inHref, c.inBase)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("FixURL(%s, %s), expected=%v, actual=%v", c.inHref, c.inBase, c.want, got)
+		}
+		if !reflect.DeepEqual(gotErr, c.wantError) {
+			t.Errorf("FixURL(%s, %s), expectedError=%v, actualError=%v", c.inHref, c.inBase, c.wantError, gotErr)
+		}
+	}
 }
