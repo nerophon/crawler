@@ -12,11 +12,11 @@ This entire project can be cloned directly from github via:
 https://github.com/nerophon/crawler
 
 <br>
-##Prerequisites
+## Prerequisites
 
 1. The [__Go Programming Langugage__][0] must be installed to build, test, and install this software.
 
-##Installation
+## Installation
 
 1. Clone this project.
 2. `cd` to the project directory
@@ -24,7 +24,7 @@ https://github.com/nerophon/crawler
 
 The software will be installed to the `$GOPATH/bin` directory by default.
 
-##Testing & Benchmarking
+## Testing & Benchmarking
 
 This software includes unit tests. They can be run as per standard for Go tests:
 
@@ -40,12 +40,12 @@ go test -bench=BenchmarkCrawl -benchtime=15s
 
 Please be aware that this kind of benchmark could, if run without care, be interpreted as a DOS attack. The `benchtime` flag may need to be adjusted depending upon which website is being used in the test. I strongly advise NOT using commonly DOS'd websites such as those belonging to major corporations.
 
-##Launching
+## Launching
 
 1. `cd` to the install directory, usually `$GOPATH/bin`
 2. run `./crawler`
 
-##Operation
+## Operation
 
 At the application command prompt, the following commands are available:
 
