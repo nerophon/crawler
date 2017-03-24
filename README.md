@@ -11,7 +11,6 @@ A simple web crawler that visits all pages within a given domain, but does not f
 This entire project can be cloned directly from github via:
 https://github.com/nerophon/crawler
 
-<br>
 ## Prerequisites
 
 1. The [__Go Programming Langugage__][0] must be installed to build, test, and install this software.
